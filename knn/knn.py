@@ -94,6 +94,148 @@ CMIP_ZARR_CHUNKS = {
 }
 
 
+MODEL_SPEC = {
+    'model_id': 'gcm_downscaling',
+    'model_title': 'GCM Downscaling',
+    'ui_spec':  {
+        'order': [['workspace_dir', 'results_suffix'],
+                  ['aoi_path'],
+                  ['reference_period_start_date', 'reference_period_end_date'],
+                  ['prediction_start_date', 'prediction_end_date'],
+                  ['hindcast'],
+                  ['gcm_experiment_list', 'gcm_model_list'],
+                  ['upper_precip_percentile', 'lower_precip_threshold']],
+        'hidden': ['n_workers'],
+    },
+    'args': {
+        'workspace_dir': {
+            'name': 'Workspace',
+            'about': "The folder where all the model's output files will be "
+                     "written. If this folder does not exist, it will be "
+                     "created. If data already exists in the folder, it will "
+                     "be overwritten.",
+            'type': 'directory',
+            'required': True,
+        },
+        'results_suffix': {
+            'name': 'File Suffix',
+            'about': 'Suffix that will be appended to all output file names. '
+                     'Useful to differentiate between model runs.',
+            'type': 'freestyle_string',
+            'required': True,
+        },
+        'aoi_path': {
+            'name': 'Area Of Interest',
+            'about': 'Map of area(s) over which to run the model. Must be EPSG:4326.',
+            'type': 'vector',
+            'required': True,
+            'fields': {},
+            'geometries': {'POLYGON'},
+        },
+        'reference_period_start_date': {
+            'name': 'Reference Period Start Date',
+            'about': 'First day in the reference period (format: "YYYY-MM-DD"), '
+                     'which is used to calculate climate "normals".',
+            'type': 'freestyle_string',
+            'required': True,
+        },        #('1999-01-01', '2000-12-31'),
+        'reference_period_end_date': {
+            'name': 'Reference Period End Date',
+            'about': 'Last day in the reference period (format: "YYYY-MM-DD"), '
+                     'which is used to calculate climate "normals".',
+            'type': 'freestyle_string',
+            'required': True,
+        },
+        'prediction_start_date': {
+            'name': 'Prediction Date',
+            'about': "First day in the simulation period, in format 'YYYY-MM-DD'",
+            'type': 'freestyle_string',
+            'required': 'not hindcast',
+        },
+        'prediction_end_date': {
+            'name': 'Prediction Date',
+            'about': "Last day in the simulation period, in format 'YYYY-MM-DD'",
+            'type': 'freestyle_string',
+            'required': 'not hindcast',
+        },        #('2007-01-01', '2100-12-31'),
+        'hindcast': {
+            'name': 'Use MCWEP Data and Date Range',
+            'about': 'If True, observed data (MSWEP) is substituted for GCM '
+                     'data and the prediction period is set to match the date '
+                     'range of the observed dataset (knn.MSWEP_DATE_RANGE).',
+            'type': 'boolean',
+            'required': True,
+        },
+        'gcm_experiment_list': {
+            'name': '',
+            'about': '',
+            'type': 'option_string',
+            'required': 'not hindcast',
+            'options': GCM_EXPERIMENT_LIST,
+        },
+        'gcm_model_list': {
+            'name': '',
+            'about': '',
+            'type': 'option_string',
+            'required': 'not hindcast',
+            'options': MODEL_LIST,
+        },
+        'upper_precip_percentile': {
+            'name': 'Upper Precipitation Percentile',
+            'about': 'A percentile (from 0-100) with which to extract the '
+                     'absolute precipitation value that will be the upper '
+                     'boundary (inclusive) of the middle bin of precipitation '
+                     'states.',
+            'type': 'percent',
+            'required': True,
+            'units': u.millimeter,
+            'expression': "(value >= 0) & (value <= 100)",
+        },
+        'lower_precip_threshold': {
+            'name': 'Lower Precipitation Threshold',
+            'about': 'The lower boundary of the middle bin of precipitation '
+                     'states',
+            'type': 'number',
+            'required': True,
+            'units': u.millimeter,
+            'expression': "(value >= 0)",
+        },
+        'observed_dataset_path': {
+            'name': 'Observed Dataset',
+            'about': 'If provided, this dataset will be used instead of MSWEP '
+                     'as the source of observed, historical preciptation. The '
+                     'dataset should be a netCDF or other xarray.open_dataset '
+                     'readable format. It should contain coordinates and '
+                     'variables named & defined as: '
+                     'lat - decimal degrees (-90 : 90), '
+                     'lon - decimal degrees (-180 : 180) or (0 : 360), '
+                     'time - daily timesteps in units that can be parsed to numpy.datetime64',
+            'type': 'raster',
+            'required': False,
+            'bands': {1: {'type': 'number', 'unit': u.millimeter}},
+        },
+        'n_workers': {
+            "name": "taskgraph n_workers parameter",
+            'about': 'The number of worker processes to use. If omitted, '
+                     'computation will take place in the current process. If '
+                     'a positive number, tasks can be parallelized across '
+                     'this many processes, which can be useful if '
+                     'gcm_model_list or gcm_experiement_list contain multiple '
+                     'items.',
+                    # "The n_workers parameter to provide to taskgraph. "
+                    # "-1 will cause all jobs to run synchronously. "
+                    # "0 will run all jobs in the same process, but scheduling will take "
+                    # "place asynchronously. Any other positive integer will cause that "
+                    # "many processes to be spawned to execute tasks."),
+            "type": "number",
+            "units": u.none,
+            "required": False,
+            "expression": "value >= -1"
+        }
+    }
+}
+
+
 def access_gcsfs():
     credentials, _ = google.auth.default()
     return gcsfs.GCSFileSystem(token=credentials)
@@ -669,8 +811,11 @@ def execute(args):
             represented by longitude, latitude decimal degrees (e.g. WGS84).
         args['workspace_dir'] (str): a path to the directory where this program
             writes output and other temporary files.
-        args['reference_period_dates'] (sequence): ('YYYY-MM-DD', 'YYYY-MM-DD')
-            first and last day in the reference period, which is used to
+        args['reference_period_start_date'] (string): ('YYYY-MM-DD')
+            first day in the reference period, which is used to
+            calculate climate "normals".
+        args['reference_period_end_date'] (string): ('YYYY-MM-DD')
+            last day in the reference period, which is used to
             calculate climate "normals".
         args['lower_precip_threshold'] (float): the lower boundary of the
             middle bin of precipitation states. Units: mm
@@ -680,8 +825,11 @@ def execute(args):
         args['hindcast'] (bool): If True, observed data (MSWEP) is substituted
             for GCM data and the prediction period is set to match the date
             range of the observed dataset (``MSWEP_DATE_RANGE``).
-        args['prediction_dates'] (sequence, optional):
-            ('YYYY-MM-DD', 'YYYY-MM-DD') first and last day in the simulation period.
+        args['prediction_start_date'] (string, optional):
+            ('YYYY-MM-DD') first day in the simulation period.
+            Required if `hindcast=False`.
+        args['prediction_end_date'] (string, optional):
+            ('YYYY-MM-DD') last day in the simulation period.
             Required if `hindcast=False`.
         args['gcm_model_list'] (sequence, optional): a sequence of strings
             representing CMIP6 model codes. Each model will be used to generate
@@ -786,7 +934,8 @@ def execute(args):
             kwargs={
                 'observed_data_path': mswep_netcdf_path,
                 'prediction_dates': hindcast_date_range,
-                'reference_period_dates': args['reference_period_dates'],
+                'reference_period_dates': (args['reference_period_start_date'],
+                                           args['reference_period_end_date']),
                 'lower_precip_threshold': args['lower_precip_threshold'],
                 'upper_precip_percentile': args['upper_precip_percentile'],
                 'target_csv_path': hindcast_target_csv_path,
@@ -820,7 +969,8 @@ def execute(args):
                 'observed_mean_precip_filepath': mswep_netcdf_path,
                 'observed_precip_filepath': mswep_extract_path,
                 'aoi_netcdf_path': aoi_mask_mswep_path,
-                'reference_period_dates': args['reference_period_dates'],
+                'reference_period_dates': (args['reference_period_start_date'],
+                                           args['reference_period_end_date']),
                 'hindcast': True,
                 'target_filename': hindcast_target_pdf_path
             },
@@ -926,9 +1076,11 @@ def execute(args):
                 func=synthesize_extreme_values,
                 kwargs={
                     'historical_gcm_path': gcm_historical_extract_path,
-                    'reference_period_dates': args['reference_period_dates'],
+                    'reference_period_dates': (args['reference_period_start_date'],
+                                               args['reference_period_end_date']),
                     'forecast_gcm_path': gcm_future_extract_path,
-                    'prediction_period_dates': args['prediction_dates'],
+                    'prediction_period_dates': (args['prediction_start_date'],
+                                                args['prediction_end_date']),
                     'target_csv_path': target_extreme_values_path,
                 },
                 task_name='Synthesize extreme values',
@@ -958,8 +1110,10 @@ def execute(args):
                 func=bootstrap_dates_precip,
                 kwargs={
                     'observed_data_path': mswep_netcdf_path,
-                    'prediction_dates': args['prediction_dates'],
-                    'reference_period_dates': args['reference_period_dates'],
+                    'prediction_dates': (args['prediction_start_date'],
+                                         args['prediction_end_date']),
+                    'reference_period_dates': (args['reference_period_start_date'],
+                                               args['reference_period_end_date']),
                     'gcm_netcdf_path': gcm_netcdf_path,
                     'lower_precip_threshold': args['lower_precip_threshold'],
                     'upper_precip_percentile': args['upper_precip_percentile'],
@@ -997,7 +1151,8 @@ def execute(args):
                     'observed_mean_precip_filepath': mswep_netcdf_path,
                     'observed_precip_filepath': mswep_extract_path,
                     'aoi_netcdf_path': aoi_mask_mswep_path,
-                    'reference_period_dates': args['reference_period_dates'],
+                    'reference_period_dates': (args['reference_period_start_date'],
+                                               args['reference_period_end_date']),
                     'hindcast': False,
                     'target_filename': target_pdf_path
                 },
