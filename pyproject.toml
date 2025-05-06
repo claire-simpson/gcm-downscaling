@@ -1,3 +1,31 @@
 [build-system]
 requires = ["setuptools >= 40.6.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.natcap.invest]
+model_title = "GCM Downscaling" #user-facing name
+model_id = "gcm_downscaling"
+conda_dependencies = [
+    "affine",
+    "dask",
+    "gcsfs",
+    "geopandas",
+    "ipython",
+    "jupyter",
+    "matplotlib",
+    "netCDF4",
+    "numpy",
+    "pandas",
+    "pint",
+    "pip",
+    "pyextremes",
+    "pygeoprocessing",
+    "pytest",
+    "python",
+    "rasterio",
+    "rechunker",
+    "seaborn",
+    "xarray",
+    "zarr",
+    "taskgraph",
+]
