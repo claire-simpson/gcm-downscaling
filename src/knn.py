@@ -23,7 +23,7 @@ import scipy
 import taskgraph
 import xarray
 
-from . import plot
+from helper_utils import plot
 
 LOGGER = logging.getLogger(__name__)
 LOG_FMT = (
