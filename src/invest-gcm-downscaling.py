@@ -23,7 +23,15 @@ import scipy
 import taskgraph
 import xarray
 
-from helper_utils import plot
+
+from natcap.invest import spec_utils
+from natcap.invest import validation
+from natcap.invest.unit_registry import u
+from natcap.invest import gettext
+
+# from helper_utils import plot
+# from pint import UnitRegistry as u
+
 
 LOGGER = logging.getLogger(__name__)
 LOG_FMT = (
@@ -31,6 +39,8 @@ LOG_FMT = (
     "(%(name)s) "
     "%(module)s.%(funcName)s(%(lineno)d) "
     "%(levelname)s %(message)s")
+
+DATE_EXPR = r"^(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$"
 
 NL = '\n'  # for use in f-strings where \ is not permitted
 DRY = 0  # joint-probability matrices are (3, 3) and index at 0.
@@ -96,7 +106,10 @@ CMIP_ZARR_CHUNKS = {
 
 MODEL_SPEC = {
     'model_id': 'gcm_downscaling',
-    'model_title': 'GCM Downscaling',
+    'model_title': gettext('GCM Downscaling'),
+    'pyname': 'natcap.invest.gcm_downscaling',
+    'userguide': 'foo.html',
+    'aliases': (),
     'ui_spec':  {
         'order': [['workspace_dir', 'results_suffix'],
                   ['aoi_path'],
@@ -104,29 +117,20 @@ MODEL_SPEC = {
                   ['prediction_start_date', 'prediction_end_date'],
                   ['hindcast'],
                   ['gcm_experiment_list', 'gcm_model_list'],
-                  ['upper_precip_percentile', 'lower_precip_threshold']],
+                  ['upper_precip_percentile', 'lower_precip_threshold'],
+                  ['observed_dataset_path']],
         'hidden': ['n_workers'],
+        'forum_tag': 'gcm',
+        'sampledata': {},
     },
     'args': {
-        'workspace_dir': {
-            'name': 'Workspace',
-            'about': "The folder where all the model's output files will be "
-                     "written. If this folder does not exist, it will be "
-                     "created. If data already exists in the folder, it will "
-                     "be overwritten.",
-            'type': 'directory',
-            'required': True,
-        },
-        'results_suffix': {
-            'name': 'File Suffix',
-            'about': 'Suffix that will be appended to all output file names. '
-                     'Useful to differentiate between model runs.',
-            'type': 'freestyle_string',
-            'required': True,
-        },
+        'workspace_dir': spec_utils.WORKSPACE,
+        'results_suffix': spec_utils.SUFFIX,
+        'n_workers': spec_utils.N_WORKERS,
         'aoi_path': {
             'name': 'Area Of Interest',
-            'about': 'Map of area(s) over which to run the model. Must be EPSG:4326.',
+            'about': gettext('Map of area(s) over which to run the model. '
+                             'Must be EPSG:4326.'),
             'type': 'vector',
             'required': True,
             'fields': {},
@@ -134,47 +138,58 @@ MODEL_SPEC = {
         },
         'reference_period_start_date': {
             'name': 'Reference Period Start Date',
-            'about': 'First day in the reference period (format: "YYYY-MM-DD"), '
-                     'which is used to calculate climate "normals".',
+            'about': 
+                gettext('First day in the reference period, which is '
+                        'used to calculate climate "normals".'
+                        'Format: "YYYY-MM-DD"'),
             'type': 'freestyle_string',
             'required': True,
+            "regexp": DATE_EXPR,
         },        #('1999-01-01', '2000-12-31'),
         'reference_period_end_date': {
             'name': 'Reference Period End Date',
-            'about': 'Last day in the reference period (format: "YYYY-MM-DD"), '
-                     'which is used to calculate climate "normals".',
+            'about': gettext('Last day in the reference period (format: "YYYY-MM-DD"), '
+                     'which is used to calculate climate "normals".'),
             'type': 'freestyle_string',
             'required': True,
+            "regexp": DATE_EXPR,
         },
         'prediction_start_date': {
             'name': 'Prediction Date',
-            'about': "First day in the simulation period, in format 'YYYY-MM-DD'",
+            'about': gettext("First day in the simulation period, in format 'YYYY-MM-DD'"),
             'type': 'freestyle_string',
             'required': 'not hindcast',
+            "regexp": DATE_EXPR,
         },
         'prediction_end_date': {
             'name': 'Prediction Date',
-            'about': "Last day in the simulation period, in format 'YYYY-MM-DD'",
+            'about': gettext("Last day in the simulation period, in format 'YYYY-MM-DD'"),
             'type': 'freestyle_string',
             'required': 'not hindcast',
+            "regexp": DATE_EXPR,
         },        #('2007-01-01', '2100-12-31'),
         'hindcast': {
             'name': 'Use MCWEP Data and Date Range',
-            'about': 'If True, observed data (MSWEP) is substituted for GCM '
+            'about': gettext('If True, observed data (MSWEP) is substituted for GCM '
                      'data and the prediction period is set to match the date '
-                     'range of the observed dataset (knn.MSWEP_DATE_RANGE).',
+                     'range of the observed dataset (knn.MSWEP_DATE_RANGE).'),
             'type': 'boolean',
             'required': True,
         },
         'gcm_experiment_list': {
-            'name': '',
-            'about': '',
+            'name': 'GCM Experiment',
+            'about':
+                gettext('A sequence of strings representing CMIP6 SSP '
+                        'experiments. Available experiments are stored in '
+                        'GCM_EXPERIMENT_LIST. If a CMIP model does not '
+                        'include a given experiment, that experiment will be '
+                        'skipped for that model. Required if hindcast=False.'),
             'type': 'option_string',
             'required': 'not hindcast',
             'options': GCM_EXPERIMENT_LIST,
         },
         'gcm_model_list': {
-            'name': '',
+            'name': 'GCM Model List',
             'about': '',
             'type': 'option_string',
             'required': 'not hindcast',
@@ -188,8 +203,7 @@ MODEL_SPEC = {
                      'states.',
             'type': 'percent',
             'required': True,
-            'units': u.millimeter,
-            'expression': "(value >= 0) & (value <= 100)",
+            # 'expression': "(value >= 0) & (value <= 100)",
         },
         'lower_precip_threshold': {
             'name': 'Lower Precipitation Threshold',
@@ -214,26 +228,14 @@ MODEL_SPEC = {
             'required': False,
             'bands': {1: {'type': 'number', 'unit': u.millimeter}},
         },
-        'n_workers': {
-            "name": "taskgraph n_workers parameter",
-            'about': 'The number of worker processes to use. If omitted, '
-                     'computation will take place in the current process. If '
-                     'a positive number, tasks can be parallelized across '
-                     'this many processes, which can be useful if '
-                     'gcm_model_list or gcm_experiement_list contain multiple '
-                     'items.',
-                    # "The n_workers parameter to provide to taskgraph. "
-                    # "-1 will cause all jobs to run synchronously. "
-                    # "0 will run all jobs in the same process, but scheduling will take "
-                    # "place asynchronously. Any other positive integer will cause that "
-                    # "many processes to be spawned to execute tasks."),
-            "type": "number",
-            "units": u.none,
-            "required": False,
-            "expression": "value >= -1"
+    },
+    'outputs': {
+        'results.pdf': {
+            'about': 'resultpdf'
         }
-    }
+    },
 }
+
 
 
 def access_gcsfs():
@@ -474,7 +476,7 @@ def bootstrap_dates_precip(
     else:
         with xarray.open_dataset(gcm_netcdf_path, use_cftime=True) as gcm_dataset:
             gcm_dataset = gcm_dataset.sortby('time')
-            validate(gcm_dataset, *prediction_dates)
+            validate_prediction_dates(gcm_dataset, *prediction_dates)
             LOGGER.info(
                 f'computing GCM JP matrices for reference period '
                 f'{reference_period_dates[0]} : {reference_period_dates[1]}')
@@ -789,7 +791,7 @@ def extract_from_zarr(zarr_path, aoi_path, target_path, open_chunks=-1):
         dataset.to_netcdf(target_path)
 
 
-def validate(dataset, prediction_start_date, prediction_end_date):
+def validate_prediction_dates(dataset, prediction_start_date, prediction_end_date):
     # TODO: Also validate for hindcasts,
     # that the prediction dates are within bounds of observed data.
     gcm_start_date = datetime.fromisoformat(dataset.time.min().item().isoformat())
@@ -1162,3 +1164,8 @@ def execute(args):
             )
 
     graph.join()
+
+
+@validation.invest_validator
+def validate(args, limit_to=None):
+    return validation.validate(args, MODEL_SPEC['args'])
