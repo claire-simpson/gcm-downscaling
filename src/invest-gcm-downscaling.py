@@ -33,16 +33,6 @@ from natcap.invest import gettext
 # from helper_utils import plot
 # from pint import UnitRegistry as u
 
-EXPERIMENTS_SPEC = {
-    'about': gettext('A string representing CMIP6 SSP '
-                     'experiments. If a CMIP model does not '
-                     'include a given experiment, that experiment will be '
-                     'skipped for that model. Required if hindcast=False.'),
-    'type': 'boolean',
-    'required': False
-}
-
-
 LOGGER = logging.getLogger(__name__)
 LOG_FMT = (
     "%(asctime)s "
@@ -126,7 +116,6 @@ MODEL_SPEC = {
                   ['reference_period_start_date', 'reference_period_end_date'],
                   ['prediction_start_date', 'prediction_end_date'],
                   ['hindcast'],
-                  ['experiment_ssp119', 'experiment_ssp126', 'experiment_ssp245', 'experiment_ssp370', 'experiment_ssp460', 'experiment_ssp585'],
                   ['gcm_model_list'], #'gcm_experiment_list',
                   ['upper_precip_percentile', 'lower_precip_threshold'],
                   ['observed_dataset_path']],
@@ -199,30 +188,6 @@ MODEL_SPEC = {
         #     'required': 'not hindcast',
         #     'options': GCM_EXPERIMENT_LIST,
         # },
-        'experiment_ssp119': {
-            'name': "Experiment: ssp119",
-            **EXPERIMENTS_SPEC
-        },
-        'experiment_ssp126': {
-            'name': "Experiment: ssp126",
-            **EXPERIMENTS_SPEC
-        },
-        'experiment_ssp245': {
-            'name': "Experiment: ssp245",
-            **EXPERIMENTS_SPEC
-        },
-        'experiment_ssp370': {
-            'name': "Experiment: ssp370",
-            **EXPERIMENTS_SPEC
-        },
-        'experiment_ssp460': {
-            'name': "Experiment: ssp460",
-            **EXPERIMENTS_SPEC
-        },
-        'experiment_ssp585': {
-            'name': "Experiment: ssp585",
-            **EXPERIMENTS_SPEC
-        },
         'gcm_model_list': {
             'name': 'GCM Model List',
             'about': '',
@@ -872,11 +837,6 @@ def execute(args):
             a single downscaled product for each experiment in `gcm_experiment_list`.
             Available models are stored in ``GCM_MODEL_LIST``.
             Required if `hindcast=False`.
-        args['gcm_experiment_list'] (sequence, optional): a sequence of strings
-            representing CMIP6 SSP experiments. Available experiments are
-            stored in ``GCM_EXPERIMENT_LIST``. If a CMIP model does not include
-            a given experiment, that experiment will be skipped for that model.
-            Required if `hindcast=False`.
         args['observed_dataset_path'] (string, optional): if provided, this
             dataset will be used instead of MSWEP as the source of observed,
             historical preciptation. The dataset should be a netCDF or other
@@ -1067,8 +1027,7 @@ def execute(args):
             dependent_task_list=[extract_historical_gcm_task]
         )
 
-        gcm_experiment_list = ['ssp119']
-        for gcm_experiment in gcm_experiment_list: #args['gcm_experiment_list']:
+        for gcm_experiment in GCM_EXPERIMENT_LIST:
             future_gcm_files = gcs_filesystem.glob(
                 f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_{gcm_experiment}_*.zarr/")
 
