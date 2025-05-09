@@ -29,8 +29,18 @@ from natcap.invest import validation
 from natcap.invest.unit_registry import u
 from natcap.invest import gettext
 
+# from . import plot
 # from helper_utils import plot
 # from pint import UnitRegistry as u
+
+EXPERIMENTS_SPEC = {
+    'about': gettext('A string representing CMIP6 SSP '
+                     'experiments. If a CMIP model does not '
+                     'include a given experiment, that experiment will be '
+                     'skipped for that model. Required if hindcast=False.'),
+    'type': 'boolean',
+    'required': False
+}
 
 
 LOGGER = logging.getLogger(__name__)
@@ -107,7 +117,7 @@ CMIP_ZARR_CHUNKS = {
 MODEL_SPEC = {
     'model_id': 'gcm_downscaling',
     'model_title': gettext('GCM Downscaling'),
-    'pyname': 'natcap.invest.gcm_downscaling',
+    'pyname': 'natcap.invest.gcm_downscaling',  # unnecessary
     'userguide': 'foo.html',
     'aliases': (),
     'ui_spec':  {
@@ -116,7 +126,8 @@ MODEL_SPEC = {
                   ['reference_period_start_date', 'reference_period_end_date'],
                   ['prediction_start_date', 'prediction_end_date'],
                   ['hindcast'],
-                  ['gcm_experiment_list', 'gcm_model_list'],
+                  ['experiment_ssp119', 'experiment_ssp126', 'experiment_ssp245', 'experiment_ssp370', 'experiment_ssp460', 'experiment_ssp585'],
+                  ['gcm_model_list'], #'gcm_experiment_list',
                   ['upper_precip_percentile', 'lower_precip_threshold'],
                   ['observed_dataset_path']],
         'hidden': ['n_workers'],
@@ -176,17 +187,41 @@ MODEL_SPEC = {
             'type': 'boolean',
             'required': True,
         },
-        'gcm_experiment_list': {
-            'name': 'GCM Experiment',
-            'about':
-                gettext('A sequence of strings representing CMIP6 SSP '
-                        'experiments. Available experiments are stored in '
-                        'GCM_EXPERIMENT_LIST. If a CMIP model does not '
-                        'include a given experiment, that experiment will be '
-                        'skipped for that model. Required if hindcast=False.'),
-            'type': 'option_string',
-            'required': 'not hindcast',
-            'options': GCM_EXPERIMENT_LIST,
+        # 'gcm_experiment_list': {
+        #     'name': 'GCM Experiment',
+        #     'about':
+        #         gettext('A sequence of strings representing CMIP6 SSP '
+        #                 'experiments. Available experiments are stored in '
+        #                 'GCM_EXPERIMENT_LIST. If a CMIP model does not '
+        #                 'include a given experiment, that experiment will be '
+        #                 'skipped for that model. Required if hindcast=False.'),
+        #     'type': 'option_string',
+        #     'required': 'not hindcast',
+        #     'options': GCM_EXPERIMENT_LIST,
+        # },
+        'experiment_ssp119': {
+            'name': "Experiment: ssp119",
+            **EXPERIMENTS_SPEC
+        },
+        'experiment_ssp126': {
+            'name': "Experiment: ssp126",
+            **EXPERIMENTS_SPEC
+        },
+        'experiment_ssp245': {
+            'name': "Experiment: ssp245",
+            **EXPERIMENTS_SPEC
+        },
+        'experiment_ssp370': {
+            'name': "Experiment: ssp370",
+            **EXPERIMENTS_SPEC
+        },
+        'experiment_ssp460': {
+            'name': "Experiment: ssp460",
+            **EXPERIMENTS_SPEC
+        },
+        'experiment_ssp585': {
+            'name': "Experiment: ssp585",
+            **EXPERIMENTS_SPEC
         },
         'gcm_model_list': {
             'name': 'GCM Model List',
@@ -235,7 +270,6 @@ MODEL_SPEC = {
         }
     },
 }
-
 
 
 def access_gcsfs():
@@ -879,7 +913,8 @@ def execute(args):
 
     rasterize_dependent_task_list = []
     if 'observed_dataset_path' in args and \
-            args['observed_dataset_path'] is not None:
+            args['observed_dataset_path'] is not None and \
+                args['observed_dataset_path'] != '':
         mswep_extract_path = args['observed_dataset_path']
     else:
         extract_mswep_task = graph.add_task(
@@ -982,13 +1017,15 @@ def execute(args):
         )
 
     try:
-        gcm_model_list = args['gcm_model_list']
+        gcm_model_list = [args['gcm_model_list']]
     except KeyError:
         gcm_model_list = []
     gcs_filesystem = access_gcsfs()
+    LOGGER.info(f"gcs_filesystem: {gcs_filesystem}")
     for gcm_model in gcm_model_list:
         historical_gcm_files = gcs_filesystem.glob(
             f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_historical_*.zarr/")
+        LOGGER.info(f"hist gcm files in: {BUCKET},{GCM_PREFIX},{gcm_model},{GCM_PRECIP_VAR}_day_{gcm_model}_historical_*.zarr/")
         if len(historical_gcm_files) == 0:
             LOGGER.warning(
                 f'No files found for model: {gcm_model}, experiment: historical'
@@ -1029,7 +1066,9 @@ def execute(args):
             target_path_list=[aoi_mask_gcm_path],
             dependent_task_list=[extract_historical_gcm_task]
         )
-        for gcm_experiment in args['gcm_experiment_list']:
+
+        gcm_experiment_list = ['ssp119']
+        for gcm_experiment in gcm_experiment_list: #args['gcm_experiment_list']:
             future_gcm_files = gcs_filesystem.glob(
                 f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_{gcm_experiment}_*.zarr/")
 
