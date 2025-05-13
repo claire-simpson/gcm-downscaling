@@ -44,7 +44,7 @@ def plot(dates_filepath, precip_filepath, observed_mean_precip_filepath,
         data_series_list = ['python_prediction']
         # For forecasts, only the reference period of the observed data
         # is relevant
-        mswep_df = mswep_df[reference_period_dates[0]: reference_period_dates[1]]
+        mswep_df = mswep_df[pandas.to_datetime(reference_period_dates[0]): pandas.to_datetime(reference_period_dates[1])]
 
     data['month'] = data.index.month
     data_long = pandas.melt(
