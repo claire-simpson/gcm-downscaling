@@ -156,14 +156,14 @@ MODEL_SPEC = {
             "regexp": DATE_EXPR,
         },
         'prediction_start_date': {
-            'name': 'Prediction Date',
+            'name': 'Prediction Start Date',
             'about': gettext("First day in the simulation period, in format 'YYYY-MM-DD'"),
             'type': 'freestyle_string',
             'required': 'not hindcast',
             "regexp": DATE_EXPR,
         },
         'prediction_end_date': {
-            'name': 'Prediction Date',
+            'name': 'Prediction End Date',
             'about': gettext("Last day in the simulation period, in format 'YYYY-MM-DD'"),
             'type': 'freestyle_string',
             'required': 'not hindcast',
@@ -855,6 +855,16 @@ def execute(args):
             `gcm_experiement_list` contain multiple items.
     """
     LOGGER.info(pformat(args))
+
+    # check that end dates are after start dates
+    if pandas.to_datetime(args['reference_period_end_date']) <= pandas.to_datetime(
+            args['reference_period_start_date']):
+        raise ValueError('Reference end date must be after reference start date.')
+
+    if pandas.to_datetime(args['prediction_end_date']) <= pandas.to_datetime(
+            args['prediction_start_date']):
+        raise ValueError('Prediction end date must be after prediction start date.')
+
     taskgraph_working_dir = os.path.join(args['workspace_dir'], '.taskgraph')
     graph = taskgraph.TaskGraph(
         taskgraph_working_dir, args.get('n_workers', -1))
@@ -1162,5 +1172,5 @@ def execute(args):
 
 
 @validation.invest_validator
-def validate(args, limit_to=None):
+def validate(args):
     return validation.validate(args, MODEL_SPEC['args'])
