@@ -23,6 +23,7 @@ import scipy
 import taskgraph
 import xarray
 
+import plot
 
 from natcap.invest import spec_utils
 from natcap.invest import validation
@@ -116,7 +117,7 @@ MODEL_SPEC = {
                   ['reference_period_start_date', 'reference_period_end_date'],
                   ['prediction_start_date', 'prediction_end_date'],
                   ['hindcast'],
-                  ['gcm_model_list'], #'gcm_experiment_list',
+                  ['gcm_model_list'],
                   ['upper_precip_percentile', 'lower_precip_threshold'],
                   ['observed_dataset_path']],
         'hidden': ['n_workers'],
@@ -167,7 +168,7 @@ MODEL_SPEC = {
             'type': 'freestyle_string',
             'required': 'not hindcast',
             "regexp": DATE_EXPR,
-        },        #('2007-01-01', '2100-12-31'),
+        },
         'hindcast': {
             'name': 'Use MCWEP Data and Date Range',
             'about': gettext('If True, observed data (MSWEP) is substituted for GCM '
@@ -176,18 +177,6 @@ MODEL_SPEC = {
             'type': 'boolean',
             'required': True,
         },
-        # 'gcm_experiment_list': {
-        #     'name': 'GCM Experiment',
-        #     'about':
-        #         gettext('A sequence of strings representing CMIP6 SSP '
-        #                 'experiments. Available experiments are stored in '
-        #                 'GCM_EXPERIMENT_LIST. If a CMIP model does not '
-        #                 'include a given experiment, that experiment will be '
-        #                 'skipped for that model. Required if hindcast=False.'),
-        #     'type': 'option_string',
-        #     'required': 'not hindcast',
-        #     'options': GCM_EXPERIMENT_LIST,
-        # },
         'gcm_model_list': {
             'name': 'GCM Model List',
             'about': '',
@@ -787,7 +776,13 @@ def extract_from_zarr(zarr_path, aoi_path, target_path, open_chunks=-1):
             & (dataset.lon <= maxx + width)
             & (dataset.lat >= miny - height)
             & (dataset.lat <= maxy + height), drop=True)
-        dataset.to_netcdf(target_path)
+        try:
+            dataset.to_netcdf(target_path)
+        except ValueError:
+            LOGGER.warning("Caught ValueError when writing NetCDF, "
+                           "now setting time dtype explicitly.")
+            dataset['time'] = dataset.time.astype('datetime64[ns]')
+            dataset.to_netcdf(target_path)
 
 
 def validate_prediction_dates(dataset, prediction_start_date, prediction_end_date):
@@ -871,6 +866,10 @@ def execute(args):
     aoi_mask_mswep_path = os.path.join(intermediate_dir, 'aoi_mask_mswep.nc')
     mswep_netcdf_path = os.path.join(intermediate_dir, 'mswep_mean.nc')
 
+    # Convert strings to numbers
+    upper_precip_percentile = float(args['upper_precip_percentile'])
+    lower_precip_threshold = float(args['lower_precip_threshold'])
+
     rasterize_dependent_task_list = []
     if 'observed_dataset_path' in args and \
             args['observed_dataset_path'] is not None and \
@@ -933,8 +932,8 @@ def execute(args):
                 'prediction_dates': hindcast_date_range,
                 'reference_period_dates': (args['reference_period_start_date'],
                                            args['reference_period_end_date']),
-                'lower_precip_threshold': args['lower_precip_threshold'],
-                'upper_precip_percentile': args['upper_precip_percentile'],
+                'lower_precip_threshold': lower_precip_threshold,
+                'upper_precip_percentile': upper_precip_percentile,
                 'target_csv_path': hindcast_target_csv_path,
                 'hindcast': True
             },
@@ -981,11 +980,9 @@ def execute(args):
     except KeyError:
         gcm_model_list = []
     gcs_filesystem = access_gcsfs()
-    LOGGER.info(f"gcs_filesystem: {gcs_filesystem}")
     for gcm_model in gcm_model_list:
         historical_gcm_files = gcs_filesystem.glob(
-            f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_historical_*.zarr/")
-        LOGGER.info(f"hist gcm files in: {BUCKET},{GCM_PREFIX},{gcm_model},{GCM_PRECIP_VAR}_day_{gcm_model}_historical_*.zarr/")
+            f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_historical_*.zarr")
         if len(historical_gcm_files) == 0:
             LOGGER.warning(
                 f'No files found for model: {gcm_model}, experiment: historical'
@@ -1029,7 +1026,7 @@ def execute(args):
 
         for gcm_experiment in GCM_EXPERIMENT_LIST:
             future_gcm_files = gcs_filesystem.glob(
-                f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_{gcm_experiment}_*.zarr/")
+                f"{BUCKET}/{GCM_PREFIX}/{gcm_model}/{GCM_PRECIP_VAR}_day_{gcm_model}_{gcm_experiment}_*.zarr")
 
             if len(future_gcm_files) == 0:
                 LOGGER.warning(
@@ -1115,8 +1112,8 @@ def execute(args):
                     'reference_period_dates': (args['reference_period_start_date'],
                                                args['reference_period_end_date']),
                     'gcm_netcdf_path': gcm_netcdf_path,
-                    'lower_precip_threshold': args['lower_precip_threshold'],
-                    'upper_precip_percentile': args['upper_precip_percentile'],
+                    'lower_precip_threshold': lower_precip_threshold,
+                    'upper_precip_percentile': upper_precip_percentile,
                     'target_csv_path': target_csv_path
                 },
                 task_name='Bootstrap dates for precipitation',
